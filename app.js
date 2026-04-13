@@ -88,6 +88,26 @@ function setDataSourceStatus(message) {
   statusBadge.textContent = message;
 }
 
+function mapExerciseRow(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    videoUrl: row.video_url || "",
+    notes: typeof row.notes === "string" ? row.notes : ""
+  };
+}
+
+function sortExercisesByDate(rows) {
+  const list = Array.isArray(rows) ? [...rows] : [];
+  list.sort((a, b) => {
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return tb - ta;
+  });
+  return list;
+}
+
 async function loadExercises() {
   if (!supabase) {
     setDataSourceStatus("Modo local: los cambios se guardan solo en este navegador.");
@@ -96,23 +116,19 @@ async function loadExercises() {
 
   const { data, error } = await supabase
     .from("exercises")
-    .select("id, title, description, video_url, notes, created_at")
-    .order("created_at", { ascending: false });
+    .select("id, title, description, video_url, notes, created_at");
 
   if (error) {
     console.error(error);
-    setDataSourceStatus("Error en base de datos. Se usa almacenamiento local temporal.");
+    setDataSourceStatus(
+      `Error en base de datos (${error.message || "desconocido"}). Se usa almacenamiento local temporal.`
+    );
     return loadLocalExercises();
   }
 
   setDataSourceStatus("Conectado a base de datos (Supabase).");
-  return data.map((row) => ({
-    id: row.id,
-    title: row.title,
-    description: row.description,
-    videoUrl: row.video_url,
-    notes: row.notes || ""
-  }));
+  const rows = sortExercisesByDate(data ?? []);
+  return rows.map(mapExerciseRow);
 }
 
 async function createExercise(exercise) {
@@ -129,9 +145,26 @@ async function createExercise(exercise) {
     notes: ""
   };
 
-  const { error } = await supabase.from("exercises").insert(payload);
-  if (error) throw error;
-  return loadExercises();
+  const { data: inserted, error: insertError } = await supabase
+    .from("exercises")
+    .insert(payload)
+    .select("id, title, description, video_url, notes, created_at")
+    .maybeSingle();
+
+  if (insertError) throw insertError;
+
+  const reloaded = await loadExercises();
+
+  if (!inserted) {
+    return reloaded;
+  }
+
+  const insertedMapped = mapExerciseRow(inserted);
+  const hasInserted = reloaded.some((item) => item.id === insertedMapped.id);
+  if (!hasInserted) {
+    return [insertedMapped, ...reloaded];
+  }
+  return reloaded;
 }
 
 async function deleteExercise(exerciseId) {
