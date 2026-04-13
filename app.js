@@ -28,11 +28,9 @@ const defaultExercises = [
   }
 ];
 
-const form = document.getElementById("exercise-form");
-const list = document.getElementById("exercise-list");
-const template = document.getElementById("exercise-template");
-const statusBadge = document.getElementById("data-source-status");
-const submitButton = form?.querySelector('button[type="submit"]') ?? null;
+let list = null;
+let template = null;
+let statusBadge = null;
 const isFileProtocol = window.location.protocol === "file:";
 
 function withTimeout(promise, ms, label) {
@@ -398,12 +396,34 @@ function renderExercises(exercises) {
   });
 }
 
-if (!form || !list || !template) {
-  console.error("Faltan elementos del DOM (formulario o lista).");
-} else {
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
+function showFatalBanner(message) {
+  const bar = document.createElement("div");
+  bar.setAttribute("role", "alert");
+  bar.textContent = message;
+  bar.style.cssText =
+    "position:fixed;left:0;right:0;top:0;z-index:99999;background:#b71c1c;color:#fff;padding:14px;font-family:sans-serif;font-size:15px;text-align:center;";
+  document.body.prepend(bar);
+}
 
+function bindSaveUi() {
+  const form = document.getElementById("exercise-form");
+  list = document.getElementById("exercise-list");
+  template = document.getElementById("exercise-template");
+  statusBadge = document.getElementById("data-source-status");
+  const saveBtn = document.getElementById("save-exercise-btn");
+
+  if (!form || !list || !template || !statusBadge) {
+    showFatalBanner(
+      "Error de carga: no se encontraron formulario o lista. Prueba Ctrl+F5 o otra pestaña de incognito."
+    );
+    return false;
+  }
+  if (!saveBtn) {
+    showFatalBanner("Error de carga: falta el boton #save-exercise-btn en el HTML.");
+    return false;
+  }
+
+  const runSave = async () => {
     const formData = new FormData(form);
     const title = String(formData.get("title") || "").trim();
     const description = String(formData.get("description") || "").trim();
@@ -422,14 +442,9 @@ if (!form || !list || !template) {
       return;
     }
 
-    if (!submitButton) {
-      window.alert("Error interno: no se encontro el boton Guardar. Recarga la pagina.");
-      return;
-    }
-
-    const prevLabel = submitButton.textContent;
-    submitButton.disabled = true;
-    submitButton.textContent = "Guardando...";
+    const prevLabel = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Guardando...";
     setDataSourceStatus(supabase ? "Guardando en Supabase..." : "Guardando en este navegador...");
 
     try {
@@ -456,10 +471,19 @@ if (!form || !list || !template) {
         `No se pudo guardar el ejercicio.${detail ? `\n\n${detail}` : ""}\n\n${hint}\n\nSi tu tabla tiene otro nombre, define window.__SUPABASE_EXERCISES_TABLE__ en index.html.`
       );
     } finally {
-      submitButton.disabled = false;
-      submitButton.textContent = prevLabel;
+      saveBtn.disabled = false;
+      saveBtn.textContent = prevLabel;
     }
+  };
+
+  saveBtn.addEventListener("click", () => {
+    void runSave();
   });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void runSave();
+  });
+  return true;
 }
 
 async function init() {
@@ -478,4 +502,13 @@ async function init() {
   }
 }
 
-init();
+function boot() {
+  if (!bindSaveUi()) return;
+  void init();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", boot);
+} else {
+  boot();
+}
