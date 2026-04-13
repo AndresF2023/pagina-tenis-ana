@@ -24,8 +24,15 @@ const isFileProtocol = window.location.protocol === "file:";
 
 const SUPABASE_URL = window.__SUPABASE_URL__ || "";
 const SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY__ || "";
-const hasSupabaseConfig = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase);
-const supabase = hasSupabaseConfig ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+let supabase = null;
+if (SUPABASE_URL && SUPABASE_ANON_KEY && typeof window.supabase?.createClient === "function") {
+  try {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  } catch (error) {
+    console.error(error);
+  }
+}
 
 let currentExercises = [];
 const noteSaveTimers = new Map();
@@ -86,6 +93,22 @@ function saveLocalExercises(exercises) {
 
 function setDataSourceStatus(message) {
   statusBadge.textContent = message;
+}
+
+function normalizeVideoUrl(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function isValidHttpUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function mapExerciseRow(row) {
@@ -328,9 +351,13 @@ form.addEventListener("submit", async (event) => {
   const formData = new FormData(form);
   const title = String(formData.get("title") || "").trim();
   const description = String(formData.get("description") || "").trim();
-  const videoUrl = String(formData.get("videoUrl") || "").trim();
+  const videoUrl = normalizeVideoUrl(formData.get("videoUrl"));
 
   if (!title || !description || !videoUrl) return;
+  if (!isValidHttpUrl(videoUrl)) {
+    window.alert("La URL del video no es valida. Usa un enlace que empiece con http:// o https://");
+    return;
+  }
   try {
     currentExercises = await createExercise({
       id: crypto.randomUUID(),
@@ -343,7 +370,10 @@ form.addEventListener("submit", async (event) => {
     form.reset();
   } catch (error) {
     console.error(error);
-    window.alert("No se pudo guardar el ejercicio. Revisa la configuracion de la base de datos.");
+    const detail = error?.message || error?.error_description || "";
+    window.alert(
+      `No se pudo guardar el ejercicio.${detail ? `\n\nDetalle: ${detail}` : ""}\n\nRevisa Supabase (tabla exercises, politicas RLS) y la consola del navegador (F12).`
+    );
   }
 });
 

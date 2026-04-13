@@ -26,7 +26,7 @@
         </div>
         <div class="field-group">
           <label for="videoUrl">URL de video (YouTube o Vimeo)</label>
-          <input id="videoUrl" name="videoUrl" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
+          <input id="videoUrl" name="videoUrl" type="text" inputmode="url" autocomplete="off" placeholder="https://www.youtube.com/watch?v=..." required>
         </div>
         <button type="submit">Guardar ejercicio</button>
       </form>
@@ -53,10 +53,10 @@
     </article>
   </template>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script>
-    window.__SUPABASE_URL__ = "";
-    window.__SUPABASE_ANON_KEY__ = "";
+    window.__SUPABASE_URL__ = "https://scyskdplutfronsvfcdz.supabase.co";
+    window.__SUPABASE_ANON_KEY__ = "sb_publishable_pmFHp4KcKe4yXdxf4cTJtQ_Ihk8IQ9W";
   </script>
   <script src="app.js"></script>
 </body>
