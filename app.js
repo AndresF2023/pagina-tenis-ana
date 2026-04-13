@@ -1,25 +1,34 @@
-const STORAGE_KEY = "tennis-exercises-v1";
-const NOTES_KEY = "tennis-exercise-notes-v1";
-
+const STORAGE_KEY = "tennis-exercises-v2";
 const defaultExercises = [
   {
     id: crypto.randomUUID(),
     title: "Derecha cruzada en movimiento",
     description: "Peloteo cruzado con desplazamiento lateral y foco en consistencia.",
-    videoUrl: "https://www.youtube.com/watch?v=9fdfQ03w06Q"
+    videoUrl: "https://www.youtube.com/watch?v=9fdfQ03w06Q",
+    notes: ""
   },
   {
     id: crypto.randomUUID(),
     title: "Saque y primer golpe",
     description: "Secuencia de saque abierto y ataque con derecha al siguiente tiro.",
-    videoUrl: "https://www.youtube.com/watch?v=a6x8VZ4T6j8"
+    videoUrl: "https://www.youtube.com/watch?v=a6x8VZ4T6j8",
+    notes: ""
   }
 ];
 
 const form = document.getElementById("exercise-form");
 const list = document.getElementById("exercise-list");
 const template = document.getElementById("exercise-template");
+const statusBadge = document.getElementById("data-source-status");
 const isFileProtocol = window.location.protocol === "file:";
+
+const SUPABASE_URL = window.__SUPABASE_URL__ || "";
+const SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY__ || "";
+const hasSupabaseConfig = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase);
+const supabase = hasSupabaseConfig ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+let currentExercises = [];
+const noteSaveTimers = new Map();
 
 function getYouTubeVideoId(parsedUrl) {
   const host = parsedUrl.hostname.replace("www.", "");
@@ -52,7 +61,7 @@ function getYouTubeThumbnail(url) {
   }
 }
 
-function loadExercises() {
+function loadLocalExercises() {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (!saved) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultExercises));
@@ -60,37 +69,95 @@ function loadExercises() {
   }
 
   try {
-    return JSON.parse(saved);
+    const parsed = JSON.parse(saved);
+    return parsed.map((exercise) => ({
+      ...exercise,
+      notes: typeof exercise.notes === "string" ? exercise.notes : ""
+    }));
   } catch {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultExercises));
     return [...defaultExercises];
   }
 }
 
-function saveExercises(exercises) {
+function saveLocalExercises(exercises) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(exercises));
 }
 
-function loadNotes() {
-  const saved = localStorage.getItem(NOTES_KEY);
-  if (!saved) return {};
+function setDataSourceStatus(message) {
+  statusBadge.textContent = message;
+}
 
-  try {
-    return JSON.parse(saved);
-  } catch {
-    return {};
+async function loadExercises() {
+  if (!supabase) {
+    setDataSourceStatus("Modo local: los cambios se guardan solo en este navegador.");
+    return loadLocalExercises();
   }
+
+  const { data, error } = await supabase
+    .from("exercises")
+    .select("id, title, description, video_url, notes, created_at")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    setDataSourceStatus("Error en base de datos. Se usa almacenamiento local temporal.");
+    return loadLocalExercises();
+  }
+
+  setDataSourceStatus("Conectado a base de datos (Supabase).");
+  return data.map((row) => ({
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    videoUrl: row.video_url,
+    notes: row.notes || ""
+  }));
 }
 
-function saveNotes(notes) {
-  localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+async function createExercise(exercise) {
+  if (!supabase) {
+    const next = [exercise, ...currentExercises];
+    saveLocalExercises(next);
+    return next;
+  }
+
+  const payload = {
+    title: exercise.title,
+    description: exercise.description,
+    video_url: exercise.videoUrl,
+    notes: ""
+  };
+
+  const { error } = await supabase.from("exercises").insert(payload);
+  if (error) throw error;
+  return loadExercises();
 }
 
-function deleteNoteByExerciseId(exerciseId) {
-  const notes = loadNotes();
-  if (!notes[exerciseId]) return;
-  delete notes[exerciseId];
-  saveNotes(notes);
+async function deleteExercise(exerciseId) {
+  if (!supabase) {
+    const updated = currentExercises.filter((item) => item.id !== exerciseId);
+    saveLocalExercises(updated);
+    return updated;
+  }
+
+  const { error } = await supabase.from("exercises").delete().eq("id", exerciseId);
+  if (error) throw error;
+  return loadExercises();
+}
+
+async function updateExerciseNotes(exerciseId, notes) {
+  if (!supabase) {
+    const updated = currentExercises.map((item) =>
+      item.id === exerciseId ? { ...item, notes } : item
+    );
+    saveLocalExercises(updated);
+    currentExercises = updated;
+    return;
+  }
+
+  const { error } = await supabase.from("exercises").update({ notes }).eq("id", exerciseId);
+  if (error) console.error(error);
 }
 
 function getEmbedUrl(url) {
@@ -115,7 +182,6 @@ function getEmbedUrl(url) {
 }
 
 function renderExercises(exercises) {
-  const notes = loadNotes();
   list.innerHTML = "";
 
   const previousWarning = document.getElementById("local-file-warning");
@@ -152,11 +218,18 @@ function renderExercises(exercises) {
 
     title.textContent = exercise.title;
     description.textContent = exercise.description;
-    notesField.value = notes[exercise.id] || "";
+    notesField.value = exercise.notes || "";
     notesField.addEventListener("input", (event) => {
-      const current = loadNotes();
-      current[exercise.id] = event.target.value;
-      saveNotes(current);
+      const nextNotes = event.target.value;
+      if (noteSaveTimers.has(exercise.id)) {
+        clearTimeout(noteSaveTimers.get(exercise.id));
+      }
+
+      const timer = setTimeout(() => {
+        updateExerciseNotes(exercise.id, nextNotes);
+        noteSaveTimers.delete(exercise.id);
+      }, 450);
+      noteSaveTimers.set(exercise.id, timer);
     });
 
     if (embedUrl && !isFileProtocol) {
@@ -199,15 +272,16 @@ function renderExercises(exercises) {
     deleteButton.textContent = "Eliminar ejercicio";
     deleteButton.style.marginTop = "0.7rem";
     deleteButton.style.background = "#c62828";
-    deleteButton.addEventListener("click", () => {
+    deleteButton.addEventListener("click", async () => {
       const confirmed = window.confirm(`¿Seguro que deseas eliminar "${exercise.title}"?`);
       if (!confirmed) return;
-
-      const currentExercises = loadExercises();
-      const updatedExercises = currentExercises.filter((item) => item.id !== exercise.id);
-      saveExercises(updatedExercises);
-      deleteNoteByExerciseId(exercise.id);
-      renderExercises(updatedExercises);
+      try {
+        currentExercises = await deleteExercise(exercise.id);
+        renderExercises(currentExercises);
+      } catch (error) {
+        console.error(error);
+        window.alert("No se pudo eliminar. Revisa la configuracion de la base de datos.");
+      }
     });
     cardContent.appendChild(deleteButton);
 
@@ -215,7 +289,7 @@ function renderExercises(exercises) {
   });
 }
 
-form.addEventListener("submit", (event) => {
+form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const formData = new FormData(form);
@@ -224,12 +298,25 @@ form.addEventListener("submit", (event) => {
   const videoUrl = String(formData.get("videoUrl") || "").trim();
 
   if (!title || !description || !videoUrl) return;
-
-  const exercises = loadExercises();
-  const next = [{ id: crypto.randomUUID(), title, description, videoUrl }, ...exercises];
-  saveExercises(next);
-  renderExercises(next);
-  form.reset();
+  try {
+    currentExercises = await createExercise({
+      id: crypto.randomUUID(),
+      title,
+      description,
+      videoUrl,
+      notes: ""
+    });
+    renderExercises(currentExercises);
+    form.reset();
+  } catch (error) {
+    console.error(error);
+    window.alert("No se pudo guardar el ejercicio. Revisa la configuracion de la base de datos.");
+  }
 });
 
-renderExercises(loadExercises());
+async function init() {
+  currentExercises = await loadExercises();
+  renderExercises(currentExercises);
+}
+
+init();
