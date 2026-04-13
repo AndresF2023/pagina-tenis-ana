@@ -95,6 +95,13 @@ function setDataSourceStatus(message) {
   statusBadge.textContent = message;
 }
 
+function formatDbError(error) {
+  if (!error) return "";
+  const msg = error.message || error.error_description || "";
+  const details = [error.code, error.details, error.hint].filter(Boolean).join(" — ");
+  return [msg, details].filter(Boolean).join("\n");
+}
+
 function normalizeVideoUrl(raw) {
   const trimmed = String(raw || "").trim();
   if (!trimmed) return "";
@@ -144,7 +151,7 @@ async function loadExercises() {
   if (error) {
     console.error(error);
     setDataSourceStatus(
-      `Error en base de datos (${error.message || "desconocido"}). Se usa almacenamiento local temporal.`
+      `Error al leer Supabase: ${error.message || "desconocido"}. Revisa tabla public.exercises, RLS y permisos (ver supabase-schema.sql). Modo local temporal.`
     );
     return loadLocalExercises();
   }
@@ -168,24 +175,32 @@ async function createExercise(exercise) {
     notes: ""
   };
 
-  const { data: inserted, error: insertError } = await supabase
+  const { data: insertedRows, error: insertError } = await supabase
     .from("exercises")
     .insert(payload)
-    .select("id, title, description, video_url, notes, created_at")
-    .maybeSingle();
+    .select("id, title, description, video_url, notes, created_at");
 
   if (insertError) throw insertError;
 
-  const reloaded = await loadExercises();
+  const inserted = Array.isArray(insertedRows) && insertedRows.length > 0 ? insertedRows[0] : null;
+  let reloaded = await loadExercises();
 
-  if (!inserted) {
+  if (inserted) {
+    const insertedMapped = mapExerciseRow(inserted);
+    if (!reloaded.some((item) => item.id === insertedMapped.id)) {
+      reloaded = [insertedMapped, ...reloaded];
+    }
     return reloaded;
   }
 
-  const insertedMapped = mapExerciseRow(inserted);
-  const hasInserted = reloaded.some((item) => item.id === insertedMapped.id);
-  if (!hasInserted) {
-    return [insertedMapped, ...reloaded];
+  reloaded = await loadExercises();
+  if (reloaded.length === 0) {
+    setDataSourceStatus(
+      "Supabase: el alta puede haber funcionado pero no hay filas visibles. Falta politica RLS de SELECT para rol anon o permisos GRANT. Ejecuta de nuevo supabase-schema.sql en el SQL Editor."
+    );
+    window.alert(
+      "No se pudo mostrar el ejercicio guardado.\n\nEn Supabase abre SQL Editor y ejecuta todo el archivo supabase-schema.sql (politicas RLS + GRANT).\n\nLuego Table Editor > exercises y comprueba si la fila existe."
+    );
   }
   return reloaded;
 }
@@ -370,15 +385,20 @@ form.addEventListener("submit", async (event) => {
     form.reset();
   } catch (error) {
     console.error(error);
-    const detail = error?.message || error?.error_description || "";
+    const detail = formatDbError(error);
     window.alert(
-      `No se pudo guardar el ejercicio.${detail ? `\n\nDetalle: ${detail}` : ""}\n\nRevisa Supabase (tabla exercises, politicas RLS) y la consola del navegador (F12).`
+      `No se pudo guardar el ejercicio.${detail ? `\n\n${detail}` : ""}\n\nComprueba en Supabase: existe la tabla public.exercises con columnas title, description, video_url, notes; RLS con politicas para anon; clave API del proyecto (anon o publishable).`
     );
   }
 });
 
 async function init() {
   currentExercises = await loadExercises();
+  if (SUPABASE_URL && SUPABASE_ANON_KEY && !supabase) {
+    setDataSourceStatus(
+      "Claves de Supabase configuradas pero el cliente no inicio. Revisa la consola (F12) y la carga del script supabase.js. Los datos se guardan solo en local."
+    );
+  }
   renderExercises(currentExercises);
 }
 

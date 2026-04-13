@@ -1,3 +1,6 @@
+-- Ejecuta TODO este script en Supabase: SQL Editor > New query > Run.
+-- Si puedes insertar pero la web no muestra filas, casi siempre faltan GRANT o la politica SELECT para rol anon.
+
 create extension if not exists pgcrypto;
 
 create table if not exists public.exercises (
@@ -35,3 +38,6 @@ create policy "Public delete exercises"
 on public.exercises for delete
 to anon
 using (true);
+
+grant usage on schema public to anon;
+grant select, insert, update, delete on table public.exercises to anon;
