@@ -15,7 +15,7 @@
   <main class="container">
     <section class="new-exercise">
       <h2>Agregar nuevo ejercicio</h2>
-      <form id="exercise-form">
+      <form id="exercise-form" novalidate>
         <div class="field-group">
           <label for="title">Nombre del ejercicio</label>
           <input id="title" name="title" type="text" placeholder="Ej: Saque con objetivo" required>
@@ -60,6 +60,6 @@
     // Si la tabla en Supabase no se llama "exercises", descomenta y pon el nombre exacto:
     // window.__SUPABASE_EXERCISES_TABLE__ = "exercises";
   </script>
-  <script src="app.js"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

@@ -1,14 +1,26 @@
 const STORAGE_KEY = "tennis-exercises-v2";
+
+function newUuid() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 const defaultExercises = [
   {
-    id: crypto.randomUUID(),
+    id: newUuid(),
     title: "Derecha cruzada en movimiento",
     description: "Peloteo cruzado con desplazamiento lateral y foco en consistencia.",
     videoUrl: "https://www.youtube.com/watch?v=9fdfQ03w06Q",
     notes: ""
   },
   {
-    id: crypto.randomUUID(),
+    id: newUuid(),
     title: "Saque y primer golpe",
     description: "Secuencia de saque abierto y ataque con derecha al siguiente tiro.",
     videoUrl: "https://www.youtube.com/watch?v=a6x8VZ4T6j8",
@@ -20,8 +32,20 @@ const form = document.getElementById("exercise-form");
 const list = document.getElementById("exercise-list");
 const template = document.getElementById("exercise-template");
 const statusBadge = document.getElementById("data-source-status");
-const submitButton = form.querySelector('button[type="submit"]');
+const submitButton = form?.querySelector('button[type="submit"]') ?? null;
 const isFileProtocol = window.location.protocol === "file:";
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`${label}: sin respuesta en ${Math.round(ms / 1000)}s (revisa red, Supabase o bloqueadores).`)),
+        ms
+      )
+    )
+  ]);
+}
 
 const EXERCISES_TABLE = String(window.__SUPABASE_EXERCISES_TABLE__ || "exercises").trim() || "exercises";
 
@@ -95,19 +119,9 @@ function saveLocalExercises(exercises) {
 }
 
 function setDataSourceStatus(message, options = {}) {
+  if (!statusBadge) return;
   statusBadge.textContent = message;
   statusBadge.classList.toggle("status-error", Boolean(options.error));
-}
-
-function newUuid() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
 }
 
 function formatDbError(error) {
@@ -162,9 +176,11 @@ async function loadExercises() {
     return loadLocalExercises();
   }
 
-  const { data, error } = await supabase
-    .from(EXERCISES_TABLE)
-    .select("id, title, description, video_url, notes, created_at");
+  const { data, error } = await withTimeout(
+    supabase.from(EXERCISES_TABLE).select("id, title, description, video_url, notes, created_at"),
+    25000,
+    "Leer ejercicios"
+  );
 
   if (error) {
     console.error(error);
@@ -194,10 +210,11 @@ async function createExercise(exercise) {
     notes: ""
   };
 
-  const { data: insertedRows, error: insertError } = await supabase
-    .from(EXERCISES_TABLE)
-    .insert(payload)
-    .select("id, title, description, video_url, notes, created_at");
+  const { data: insertedRows, error: insertError } = await withTimeout(
+    supabase.from(EXERCISES_TABLE).insert(payload).select("id, title, description, video_url, notes, created_at"),
+    25000,
+    "Guardar ejercicio"
+  );
 
   if (insertError) throw insertError;
 
@@ -273,6 +290,7 @@ function getEmbedUrl(url) {
 }
 
 function renderExercises(exercises) {
+  if (!list || !template) return;
   list.innerHTML = "";
 
   const previousWarning = document.getElementById("local-file-warning");
@@ -380,60 +398,84 @@ function renderExercises(exercises) {
   });
 }
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
+if (!form || !list || !template) {
+  console.error("Faltan elementos del DOM (formulario o lista).");
+} else {
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
 
-  const formData = new FormData(form);
-  const title = String(formData.get("title") || "").trim();
-  const description = String(formData.get("description") || "").trim();
-  const videoUrl = normalizeVideoUrl(formData.get("videoUrl"));
+    const formData = new FormData(form);
+    const title = String(formData.get("title") || "").trim();
+    const description = String(formData.get("description") || "").trim();
+    const videoUrl = normalizeVideoUrl(formData.get("videoUrl"));
 
-  if (!title || !description || !videoUrl) return;
-  if (!isValidHttpUrl(videoUrl)) {
-    window.alert("La URL del video no es valida. Usa un enlace que empiece con http:// o https://");
-    return;
-  }
-
-  const prevLabel = submitButton.textContent;
-  submitButton.disabled = true;
-  submitButton.textContent = "Guardando...";
-
-  try {
-    currentExercises = await createExercise({
-      id: newUuid(),
-      title,
-      description,
-      videoUrl,
-      notes: ""
-    });
-    renderExercises(currentExercises);
-    form.reset();
-    if (supabase) {
-      setDataSourceStatus(`Conectado a Supabase (tabla ${EXERCISES_TABLE}). Ejercicio guardado.`);
+    if (!title || !description || !videoUrl) {
+      const msg = "Completa los tres campos: nombre, descripcion y URL del video.";
+      setDataSourceStatus(msg, { error: true });
+      window.alert(msg);
+      return;
     }
-  } catch (error) {
-    console.error(error);
-    const detail = formatDbError(error);
-    const hint = `Tabla: public.${EXERCISES_TABLE} | Columnas: title, description, video_url, notes`;
-    setDataSourceStatus(`Error al guardar:\n${detail || "Error desconocido"}\n${hint}`, { error: true });
-    window.alert(
-      `No se pudo guardar el ejercicio.${detail ? `\n\n${detail}` : ""}\n\n${hint}\n\nSi el nombre de tu tabla en Supabase es otro (ej. excersises), define window.__SUPABASE_EXERCISES_TABLE__ en index.html.`
-    );
-  } finally {
-    submitButton.disabled = false;
-    submitButton.textContent = prevLabel;
-  }
-});
+    if (!isValidHttpUrl(videoUrl)) {
+      const msg = "La URL del video no es valida. Usa http:// o https:// (ej. enlace de YouTube).";
+      setDataSourceStatus(msg, { error: true });
+      window.alert(msg);
+      return;
+    }
+
+    if (!submitButton) {
+      window.alert("Error interno: no se encontro el boton Guardar. Recarga la pagina.");
+      return;
+    }
+
+    const prevLabel = submitButton.textContent;
+    submitButton.disabled = true;
+    submitButton.textContent = "Guardando...";
+    setDataSourceStatus(supabase ? "Guardando en Supabase..." : "Guardando en este navegador...");
+
+    try {
+      currentExercises = await createExercise({
+        id: newUuid(),
+        title,
+        description,
+        videoUrl,
+        notes: ""
+      });
+      renderExercises(currentExercises);
+      form.reset();
+      if (supabase) {
+        setDataSourceStatus(`Conectado a Supabase (tabla ${EXERCISES_TABLE}). Ejercicio guardado.`);
+      } else {
+        setDataSourceStatus("Guardado en este navegador (modo local).");
+      }
+    } catch (error) {
+      console.error(error);
+      const detail = formatDbError(error);
+      const hint = `Tabla: public.${EXERCISES_TABLE} | Columnas: title, description, video_url, notes`;
+      setDataSourceStatus(`Error al guardar:\n${detail || "Error desconocido"}\n${hint}`, { error: true });
+      window.alert(
+        `No se pudo guardar el ejercicio.${detail ? `\n\n${detail}` : ""}\n\n${hint}\n\nSi tu tabla tiene otro nombre, define window.__SUPABASE_EXERCISES_TABLE__ en index.html.`
+      );
+    } finally {
+      submitButton.disabled = false;
+      submitButton.textContent = prevLabel;
+    }
+  });
+}
 
 async function init() {
-  currentExercises = await loadExercises();
-  if (SUPABASE_URL && SUPABASE_ANON_KEY && !supabase) {
-    setDataSourceStatus(
-      "Claves de Supabase configuradas pero el cliente no inicio. Revisa la consola (F12) y la carga del script supabase.js. Los datos se guardan solo en local.",
-      { error: true }
-    );
+  try {
+    currentExercises = await loadExercises();
+    if (SUPABASE_URL && SUPABASE_ANON_KEY && !supabase) {
+      setDataSourceStatus(
+        "Claves de Supabase configuradas pero el cliente no inicio. Revisa la consola (F12) y la carga del script supabase.js. Los datos se guardan solo en local.",
+        { error: true }
+      );
+    }
+    renderExercises(currentExercises);
+  } catch (error) {
+    console.error(error);
+    setDataSourceStatus(`Error al iniciar: ${formatDbError(error) || error}`, { error: true });
   }
-  renderExercises(currentExercises);
 }
 
 init();
