@@ -12,6 +12,14 @@ create table if not exists public.exercises (
   created_at timestamptz not null default now()
 );
 
+-- Asegura default en id (evita 22P02 si el Table Editor envia cadena vacia en id).
+alter table public.exercises
+  alter column id set default gen_random_uuid();
+
+-- Insercion manual sin tocar id (SQL Editor):
+-- insert into public.exercises (title, description, video_url)
+-- values ('Mi ejercicio', 'Descripcion', 'https://www.youtube.com/watch?v=XXXXXXXXXXX');
+
 alter table public.exercises enable row level security;
 
 drop policy if exists "Public read exercises" on public.exercises;
