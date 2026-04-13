@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ejercicios de Tenis</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="hero">
+    <h1>Biblioteca de Ejercicios de Tenis</h1>
+    <p>Visualiza cada ejercicio y agrega tus indicaciones personalizadas.</p>
+  </header>
+
+  <main class="container">
+    <section class="new-exercise">
+      <h2>Agregar nuevo ejercicio</h2>
+      <form id="exercise-form">
+        <div class="field-group">
+          <label for="title">Nombre del ejercicio</label>
+          <input id="title" name="title" type="text" placeholder="Ej: Saque con objetivo" required>
+        </div>
+        <div class="field-group">
+          <label for="description">Descripción</label>
+          <textarea id="description" name="description" rows="3" placeholder="¿Qué se trabaja en este ejercicio?" required></textarea>
+        </div>
+        <div class="field-group">
+          <label for="videoUrl">URL de video (YouTube o Vimeo)</label>
+          <input id="videoUrl" name="videoUrl" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
+        </div>
+        <button type="submit">Guardar ejercicio</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Ejercicios</h2>
+      <div id="exercise-list" class="exercise-list"></div>
+    </section>
+  </main>
+
+  <template id="exercise-template">
+    <article class="card">
+      <div class="video-wrapper">
+        <iframe title="Video del ejercicio" loading="lazy" allowfullscreen></iframe>
+      </div>
+      <div class="card-content">
+        <h3 class="exercise-title"></h3>
+        <p class="exercise-description"></p>
+        <label class="notes-label">Indicaciones para este ejercicio</label>
+        <textarea class="notes" rows="4" placeholder="Ej: Mantener rodillas flexionadas y terminar el golpe arriba"></textarea>
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

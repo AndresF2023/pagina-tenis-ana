@@ -1,0 +1,149 @@
+:root {
+  color-scheme: light;
+  --bg: #f4f7fb;
+  --card: #ffffff;
+  --text: #172035;
+  --muted: #5f6c87;
+  --primary: #1f6feb;
+  --primary-dark: #1555b8;
+  --border: #d9e0ec;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.hero {
+  padding: 2rem 1rem;
+  text-align: center;
+  background: linear-gradient(120deg, #1f6feb, #2ea043);
+  color: #fff;
+}
+
+.hero h1 {
+  margin: 0 0 0.4rem;
+}
+
+.hero p {
+  margin: 0;
+}
+
+.container {
+  width: min(1000px, 92%);
+  margin: 1.5rem auto 2rem;
+}
+
+h2 {
+  margin-top: 0;
+}
+
+.new-exercise,
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(23, 32, 53, 0.06);
+}
+
+.new-exercise {
+  padding: 1rem;
+  margin-bottom: 1.6rem;
+}
+
+#exercise-form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.field-group {
+  display: grid;
+  gap: 0.35rem;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.65rem 0.8rem;
+}
+
+input:focus,
+textarea:focus {
+  outline: 2px solid rgba(31, 111, 235, 0.2);
+  border-color: var(--primary);
+}
+
+button {
+  justify-self: start;
+  border: 0;
+  background: var(--primary);
+  color: #fff;
+  padding: 0.65rem 1rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--primary-dark);
+}
+
+.exercise-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.card {
+  overflow: hidden;
+}
+
+.video-wrapper {
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+
+.video-wrapper iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.card-content {
+  padding: 0.9rem;
+}
+
+.exercise-title {
+  margin: 0;
+}
+
+.exercise-description {
+  color: var(--muted);
+  margin: 0.5rem 0 1rem;
+}
+
+.notes-label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-weight: 700;
+}
+
+.empty-message {
+  color: var(--muted);
+  background: #fff;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 0.8rem;
+}
