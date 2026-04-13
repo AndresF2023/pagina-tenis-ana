@@ -20,7 +20,10 @@ const form = document.getElementById("exercise-form");
 const list = document.getElementById("exercise-list");
 const template = document.getElementById("exercise-template");
 const statusBadge = document.getElementById("data-source-status");
+const submitButton = form.querySelector('button[type="submit"]');
 const isFileProtocol = window.location.protocol === "file:";
+
+const EXERCISES_TABLE = String(window.__SUPABASE_EXERCISES_TABLE__ || "exercises").trim() || "exercises";
 
 const SUPABASE_URL = window.__SUPABASE_URL__ || "";
 const SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY__ || "";
@@ -91,15 +94,30 @@ function saveLocalExercises(exercises) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(exercises));
 }
 
-function setDataSourceStatus(message) {
+function setDataSourceStatus(message, options = {}) {
   statusBadge.textContent = message;
+  statusBadge.classList.toggle("status-error", Boolean(options.error));
+}
+
+function newUuid() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 function formatDbError(error) {
   if (!error) return "";
   const msg = error.message || error.error_description || "";
-  const details = [error.code, error.details, error.hint].filter(Boolean).join(" — ");
-  return [msg, details].filter(Boolean).join("\n");
+  const details = [error.code, error.details, error.hint, error.status]
+    .filter(Boolean)
+    .join(" — ");
+  const out = [msg, details].filter(Boolean).join("\n");
+  return out || String(error);
 }
 
 function normalizeVideoUrl(raw) {
@@ -145,18 +163,19 @@ async function loadExercises() {
   }
 
   const { data, error } = await supabase
-    .from("exercises")
+    .from(EXERCISES_TABLE)
     .select("id, title, description, video_url, notes, created_at");
 
   if (error) {
     console.error(error);
     setDataSourceStatus(
-      `Error al leer Supabase: ${error.message || "desconocido"}. Revisa tabla public.exercises, RLS y permisos (ver supabase-schema.sql). Modo local temporal.`
+      `Error al leer Supabase (${EXERCISES_TABLE}): ${error.message || "desconocido"}. ¿Nombre de tabla exacto? ¿RLS + GRANT? Ver supabase-schema.sql. Modo local temporal.`,
+      { error: true }
     );
     return loadLocalExercises();
   }
 
-  setDataSourceStatus("Conectado a base de datos (Supabase).");
+  setDataSourceStatus(`Conectado a Supabase (tabla ${EXERCISES_TABLE}).`);
   const rows = sortExercisesByDate(data ?? []);
   return rows.map(mapExerciseRow);
 }
@@ -176,7 +195,7 @@ async function createExercise(exercise) {
   };
 
   const { data: insertedRows, error: insertError } = await supabase
-    .from("exercises")
+    .from(EXERCISES_TABLE)
     .insert(payload)
     .select("id, title, description, video_url, notes, created_at");
 
@@ -196,7 +215,8 @@ async function createExercise(exercise) {
   reloaded = await loadExercises();
   if (reloaded.length === 0) {
     setDataSourceStatus(
-      "Supabase: el alta puede haber funcionado pero no hay filas visibles. Falta politica RLS de SELECT para rol anon o permisos GRANT. Ejecuta de nuevo supabase-schema.sql en el SQL Editor."
+      "Supabase: el alta puede haber funcionado pero no hay filas visibles. Falta politica RLS de SELECT para rol anon o permisos GRANT. Ejecuta de nuevo supabase-schema.sql en el SQL Editor.",
+      { error: true }
     );
     window.alert(
       "No se pudo mostrar el ejercicio guardado.\n\nEn Supabase abre SQL Editor y ejecuta todo el archivo supabase-schema.sql (politicas RLS + GRANT).\n\nLuego Table Editor > exercises y comprueba si la fila existe."
@@ -212,7 +232,7 @@ async function deleteExercise(exerciseId) {
     return updated;
   }
 
-  const { error } = await supabase.from("exercises").delete().eq("id", exerciseId);
+  const { error } = await supabase.from(EXERCISES_TABLE).delete().eq("id", exerciseId);
   if (error) throw error;
   return loadExercises();
 }
@@ -227,7 +247,7 @@ async function updateExerciseNotes(exerciseId, notes) {
     return;
   }
 
-  const { error } = await supabase.from("exercises").update({ notes }).eq("id", exerciseId);
+  const { error } = await supabase.from(EXERCISES_TABLE).update({ notes }).eq("id", exerciseId);
   if (error) console.error(error);
 }
 
@@ -373,9 +393,14 @@ form.addEventListener("submit", async (event) => {
     window.alert("La URL del video no es valida. Usa un enlace que empiece con http:// o https://");
     return;
   }
+
+  const prevLabel = submitButton.textContent;
+  submitButton.disabled = true;
+  submitButton.textContent = "Guardando...";
+
   try {
     currentExercises = await createExercise({
-      id: crypto.randomUUID(),
+      id: newUuid(),
       title,
       description,
       videoUrl,
@@ -383,12 +408,20 @@ form.addEventListener("submit", async (event) => {
     });
     renderExercises(currentExercises);
     form.reset();
+    if (supabase) {
+      setDataSourceStatus(`Conectado a Supabase (tabla ${EXERCISES_TABLE}). Ejercicio guardado.`);
+    }
   } catch (error) {
     console.error(error);
     const detail = formatDbError(error);
+    const hint = `Tabla: public.${EXERCISES_TABLE} | Columnas: title, description, video_url, notes`;
+    setDataSourceStatus(`Error al guardar:\n${detail || "Error desconocido"}\n${hint}`, { error: true });
     window.alert(
-      `No se pudo guardar el ejercicio.${detail ? `\n\n${detail}` : ""}\n\nComprueba en Supabase: existe la tabla public.exercises con columnas title, description, video_url, notes; RLS con politicas para anon; clave API del proyecto (anon o publishable).`
+      `No se pudo guardar el ejercicio.${detail ? `\n\n${detail}` : ""}\n\n${hint}\n\nSi el nombre de tu tabla en Supabase es otro (ej. excersises), define window.__SUPABASE_EXERCISES_TABLE__ en index.html.`
     );
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = prevLabel;
   }
 });
 
@@ -396,7 +429,8 @@ async function init() {
   currentExercises = await loadExercises();
   if (SUPABASE_URL && SUPABASE_ANON_KEY && !supabase) {
     setDataSourceStatus(
-      "Claves de Supabase configuradas pero el cliente no inicio. Revisa la consola (F12) y la carga del script supabase.js. Los datos se guardan solo en local."
+      "Claves de Supabase configuradas pero el cliente no inicio. Revisa la consola (F12) y la carga del script supabase.js. Los datos se guardan solo en local.",
+      { error: true }
     );
   }
   renderExercises(currentExercises);
